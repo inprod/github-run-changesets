@@ -36,7 +36,7 @@ inputs:
     required: false
     default: 'false'
   changeset_variables:
-    description: 'Changeset variables in KEY=VALUE format (one per line). Allows injecting secrets from GitHub Secrets without storing in version control. Example: DB_PASSWORD=${{ secrets.DB_PASSWORD }}'
+    description: 'Changeset variables in KEY=VALUE format (one per line). Allows injecting secrets from GitHub Secrets without storing in version control. See README for examples.'
     required: false
 
 outputs:
