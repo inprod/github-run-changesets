@@ -1,0 +1,337 @@
+name: Test InProd Run Changesets Action
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Verify dist is up to date
+        run: |
+          npm run build
+          if [ -n "$(git diff --name-only dist/)" ]; then
+            echo "::error::dist/index.js is out of date. Run 'npm run build' and commit the result."
+            git diff --stat dist/
+            exit 1
+          fi
+          echo "✓ dist/index.js is up to date"
+
+  test-action-no-wait:
+    name: Test Action - Submit Only (No Wait)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test changeset file
+        run: |
+          mkdir -p changesets
+          cat > changesets/test-queue.yaml << 'EOF'
+          name: Test Queue Creation
+          environment: Development
+          enforcing: true
+          run_type: stop
+          action:
+            - action: gencloud-create
+              object_type: RoutingQueue
+              data:
+                name: Test Support Queue
+                division:
+                  lookup_method: empty
+                  value: null
+          variable: []
+          EOF
+
+      - name: Submit changeset (no wait)
+        id: inprod-submit
+        uses: ./
+        with:
+          api_key: ${{ secrets.INPROD_API_KEY || 'test-api-key' }}
+          base_url: https://your-company.inprod.io
+          changeset_file: changesets/test-queue.yaml
+          validate_before_execute: false
+          wait_for_completion: false
+
+      - name: Display submission result
+        run: |
+          echo "Task ID: ${{ steps.inprod-submit.outputs.task_id }}"
+          echo "Status: ${{ steps.inprod-submit.outputs.status }}"
+
+  test-action-with-file:
+    name: Test Action - Changeset from File
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test changeset file
+        run: |
+          mkdir -p changesets
+          cat > changesets/test-queue.yaml << 'EOF'
+          name: Test Queue from File
+          environment: Development
+          enforcing: true
+          run_type: stop
+          action:
+            - action: gencloud-create
+              object_type: RoutingQueue
+              data:
+                name: File Test Queue
+                division:
+                  lookup_method: empty
+                  value: null
+          variable: []
+          EOF
+
+      - name: Submit changeset from file (no wait)
+        id: inprod-file
+        uses: ./
+        with:
+          api_key: ${{ secrets.INPROD_API_KEY || 'test-api-key' }}
+          base_url: https://your-company.inprod.io
+          changeset_file: changesets/test-queue.yaml
+          environment: Development
+          validate_before_execute: false
+          wait_for_completion: false
+        continue-on-error: true
+
+      - name: Display result
+        run: |
+          echo "Task ID: ${{ steps.inprod-file.outputs.task_id }}"
+          echo "Status: ${{ steps.inprod-file.outputs.status }}"
+
+  test-validate-only:
+    name: Test Action - Validate Only
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test changeset file
+        run: |
+          mkdir -p changesets
+          cat > changesets/validate-test.yaml << 'EOF'
+          name: Validate Only Test
+          environment: Development
+          enforcing: true
+          run_type: stop
+          action:
+            - action: gencloud-create
+              object_type: RoutingQueue
+              data:
+                name: Validation Test Queue
+                division:
+                  lookup_method: empty
+                  value: null
+          variable: []
+          EOF
+
+      - name: Validate changeset only
+        id: inprod-validate
+        uses: ./
+        with:
+          api_key: ${{ secrets.INPROD_API_KEY || 'test-api-key' }}
+          base_url: https://your-company.inprod.io
+          changeset_file: changesets/validate-test.yaml
+          environment: Development
+          validate_only: true
+          polling_timeout_minutes: 5
+
+      - name: Display validation result
+        run: |
+          echo "Task ID: ${{ steps.inprod-validate.outputs.task_id }}"
+          echo "Status: ${{ steps.inprod-validate.outputs.status }}"
+          echo "Result: ${{ steps.inprod-validate.outputs.result }}"
+
+  test-action-with-wait:
+    name: Test Action - With Wait for Completion
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test changeset file
+        run: |
+          mkdir -p changesets
+          cat > changesets/wait-test.yaml << 'EOF'
+          name: Test Queue Update
+          environment: Development
+          enforcing: true
+          run_type: stop
+          action:
+            - action: gencloud-create
+              object_type: RoutingQueue
+              data:
+                name: Updated Test Queue
+                division:
+                  lookup_method: empty
+                  value: null
+          variable: []
+          EOF
+
+      - name: Execute changeset with wait
+        id: inprod-execute
+        uses: ./
+        with:
+          api_key: ${{ secrets.INPROD_API_KEY || 'test-api-key' }}
+          base_url: https://your-company.inprod.io
+          changeset_file: changesets/wait-test.yaml
+          environment: Development
+          wait_for_completion: true
+          polling_timeout_minutes: 5
+
+      - name: Display execution result
+        run: |
+          echo "Task ID: ${{ steps.inprod-execute.outputs.task_id }}"
+          echo "Status: ${{ steps.inprod-execute.outputs.status }}"
+          echo "Result: ${{ steps.inprod-execute.outputs.result }}"
+
+      - name: Check execution success
+        if: steps.inprod-execute.outputs.status == 'SUCCESS'
+        run: |
+          echo "✓ Changeset execution succeeded!"
+          echo "Result details:"
+          echo "${{ steps.inprod-execute.outputs.result }}" | jq '.'
+
+      - name: Handle execution failure
+        if: failure()
+        run: |
+          echo "✗ Changeset execution failed. Check logs above."
+          exit 1
+
+  validate-inputs:
+    name: Validate Action Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test changeset files
+        run: |
+          mkdir -p changesets
+          cat > changesets/minimal.yaml << 'EOF'
+          name: Minimal Test
+          environment: Development
+          action: []
+          variable: []
+          EOF
+          cat > changesets/timeout-test.yaml << 'EOF'
+          name: Timeout Test
+          environment: Development
+          action: []
+          variable: []
+          EOF
+
+      - name: Test with minimal inputs
+        id: minimal
+        uses: ./
+        with:
+          api_key: test-key-123
+          base_url: https://test.inprod.io
+          changeset_file: changesets/minimal.yaml
+          validate_before_execute: false
+          wait_for_completion: false
+        continue-on-error: true
+
+      - name: Test with timeout configuration
+        id: timeout-config
+        uses: ./
+        with:
+          api_key: test-key-456
+          base_url: https://test.inprod.io
+          changeset_file: changesets/timeout-test.yaml
+          validate_before_execute: false
+          wait_for_completion: false
+          polling_timeout_minutes: 30
+        continue-on-error: true
+
+      - name: Display test results
+        run: |
+          echo "Minimal inputs test completed"
+          echo "Timeout configuration test completed"
+
+  test-error-handling:
+    name: Test Error Handling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test missing changeset file input (should fail)
+        id: missing-input
+        uses: ./
+        with:
+          api_key: test-key
+          base_url: https://test.inprod.io
+        continue-on-error: true
+
+      - name: Verify error was caught
+        if: steps.missing-input.outcome == 'failure'
+        run: |
+          echo "✓ Error handling works - missing input caught as expected"
+
+      - name: Create test changeset for URL validation
+        run: |
+          mkdir -p changesets
+          cat > changesets/url-test.yaml << 'EOF'
+          name: Test
+          action: []
+          EOF
+
+      - name: Test invalid URL format
+        id: invalid-url
+        uses: ./
+        with:
+          api_key: test-key
+          base_url: 'not-a-valid-url'
+          changeset_file: changesets/url-test.yaml
+        continue-on-error: true
+
+      - name: Verify URL validation
+        run: |
+          if [ "${{ steps.invalid-url.outcome }}" == "failure" ]; then
+            echo "✓ URL validation works - invalid URL caught as expected"
+          else
+            echo "✗ URL validation failed"
+            exit 1
+          fi
+
+      - name: Test missing changeset file
+        id: missing-file
+        uses: ./
+        with:
+          api_key: test-key
+          base_url: https://test.inprod.io
+          changeset_file: nonexistent/file.yaml
+        continue-on-error: true
+
+      - name: Verify file not found error
+        run: |
+          if [ "${{ steps.missing-file.outcome }}" == "failure" ]; then
+            echo "✓ File not found error works as expected"
+          else
+            echo "✗ File not found error not caught"
+            exit 1
+          fi

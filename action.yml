@@ -1,0 +1,56 @@
+name: 'InProd Run Changesets'
+description: 'Execute InProd changesets to manage Genesys Cloud configuration as code'
+author: 'InProd Solutions'
+
+inputs:
+  api_key:
+    description: 'InProd API key for authentication. Can also be set via INPROD_API_KEY environment variable.'
+    required: false
+  base_url:
+    description: 'Base URL of the InProd service (e.g., https://your-company.inprod.io). Can also be set via INPROD_BASE_URL environment variable.'
+    required: false
+  changeset_file:
+    description: 'Path to changeset YAML/JSON file, or a glob pattern matching multiple files (e.g., changesets/*.yaml). Files are sorted alphabetically by filename and processed sequentially.'
+    required: true
+  environment:
+    description: 'Target environment name or ID (overrides environment field in changeset YAML)'
+    required: false
+  validate_before_execute:
+    description: 'Validate the changeset before executing (default: true)'
+    required: false
+    default: 'true'
+  validate_only:
+    description: 'Only validate the changeset without executing (default: false)'
+    required: false
+    default: 'false'
+  polling_timeout_minutes:
+    description: 'Maximum minutes to wait for task completion (default 10 minutes = 600 seconds)'
+    required: false
+    default: '10'
+  execution_strategy:
+    description: "How to process multiple matched files. 'per_file': each file goes through validate -> execute -> poll before the next file starts. 'validate_first': validate all files first, then execute each sequentially. Only relevant when changeset_file matches multiple files."
+    required: false
+    default: 'per_file'
+  fail_fast:
+    description: "Whether to stop processing remaining files when one fails. 'true': stop immediately on first failure. 'false': continue processing all files and report all failures at the end."
+    required: false
+    default: 'false'
+  changeset_variables:
+    description: 'Changeset variables in KEY=VALUE format (one per line). Allows injecting secrets from GitHub Secrets without storing in version control. Example: DB_PASSWORD=${{ secrets.DB_PASSWORD }}'
+    required: false
+
+outputs:
+  status:
+    description: 'Aggregate status across all files. Reports the worst status: FAILURE > TIMEOUT > REVOKED > SUCCESS > SUBMITTED.'
+    value: ${{ steps.run-changeset.outputs.status }}
+  result:
+    description: 'JSON array of per-file results, each containing file, status, result, and error fields.'
+    value: ${{ steps.run-changeset.outputs.result }}
+
+branding:
+  icon: 'settings'
+  color: 'blue'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
