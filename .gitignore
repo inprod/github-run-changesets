@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+# Lock files are committed to ensure reproducible builds in CI/CD
 yarn.lock
 
 # Build output
