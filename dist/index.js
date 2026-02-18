@@ -25749,20 +25749,31 @@ async function validateFile(filePath, options) {
   const content = fs.readFileSync(filePath, 'utf8');
   const validateUrl = buildUrl(baseUrl, '/api/v1/change-set/change-set/validate_yaml/', environment);
 
+  core.debug(`Validate URL: ${validateUrl}`);
+
   // Prepare request payload with changeset and variables
   const requestPayload = {
     changeset: content,
     ...(changesetVariables && { variables: changesetVariables })
   };
 
-  const validateResponse = await fetch(validateUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Api-Key ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestPayload)
-  });
+  core.debug(`Sending validation request to: ${validateUrl}`);
+  let validateResponse;
+  try {
+    validateResponse = await fetch(validateUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Api-Key ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestPayload)
+    });
+    core.debug(`API response status: ${validateResponse.status}`);
+  } catch (error) {
+    core.error(`Network error connecting to InProd API: ${error.message}`);
+    core.debug(`Full error details: ${error.stack}`);
+    throw new Error(`Failed to connect to InProd API at ${validateUrl}: ${error.message}`);
+  }
 
   if (!validateResponse.ok) {
     const errorBody = await validateResponse.text();
@@ -25823,20 +25834,31 @@ async function executeFile(filePath, options) {
   const content = fs.readFileSync(filePath, 'utf8');
   const executeUrl = buildUrl(baseUrl, '/api/v1/change-set/change-set/execute_yaml/', environment);
 
+  core.debug(`Execute URL: ${executeUrl}`);
+
   // Prepare request payload with changeset and variables
   const requestPayload = {
     changeset: content,
     ...(changesetVariables && { variables: changesetVariables })
   };
 
-  const executeResponse = await fetch(executeUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Api-Key ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestPayload)
-  });
+  core.debug(`Sending API request to: ${executeUrl}`);
+  let executeResponse;
+  try {
+    executeResponse = await fetch(executeUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Api-Key ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestPayload)
+    });
+    core.debug(`API response status: ${executeResponse.status}`);
+  } catch (error) {
+    core.error(`Network error connecting to InProd API: ${error.message}`);
+    core.debug(`Full error details: ${error.stack}`);
+    throw new Error(`Failed to connect to InProd API at ${executeUrl}: ${error.message}`);
+  }
 
   if (!executeResponse.ok) {
     const errorBody = await executeResponse.text();
