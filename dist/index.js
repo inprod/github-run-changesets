@@ -29830,17 +29830,23 @@ function buildUrl(baseUrl, endpoint, environment) {
 function injectYamlVariables(content, changesetVariables) {
   const doc = yaml.load(content);
 
-  // Build new variable entries from the provided changeset variables
-  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => ({
-    environment: null,
-    mask_value: true,
-    name,
-    value,
-  }));
-
-  // Remove existing entries for variables we're overriding
-  const overrideNames = new Set(Object.keys(changesetVariables));
+  // Determine mask_value for each injected variable based on existing entries
   const existingVars = Array.isArray(doc.variable) ? doc.variable : [];
+  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => {
+    // Check if this variable exists in the changeset
+    const existingEntries = existingVars.filter(v => v.name === name);
+    // If any existing entry has mask_value: true, preserve that; otherwise use false
+    const maskValue = existingEntries.some(v => v.mask_value === true) ? true : false;
+    return {
+      environment: null,
+      mask_value: maskValue,
+      name,
+      value,
+    };
+  });
+
+  // Remove all existing entries for variables we're overriding
+  const overrideNames = new Set(Object.keys(changesetVariables));
   const keptVars = existingVars.filter(v => !overrideNames.has(v.name));
 
   doc.variable = [...keptVars, ...injectedVars];
@@ -29851,17 +29857,23 @@ function injectYamlVariables(content, changesetVariables) {
 function injectJsonVariables(content, changesetVariables) {
   const doc = JSON.parse(content);
 
-  // Build new variable entries from the provided changeset variables
-  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => ({
-    environment: null,
-    mask_value: true,
-    name,
-    value,
-  }));
-
-  // Remove existing entries for variables we're overriding
-  const overrideNames = new Set(Object.keys(changesetVariables));
+  // Determine mask_value for each injected variable based on existing entries
   const existingVars = Array.isArray(doc.variable) ? doc.variable : [];
+  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => {
+    // Check if this variable exists in the changeset
+    const existingEntries = existingVars.filter(v => v.name === name);
+    // If any existing entry has mask_value: true, preserve that; otherwise use false
+    const maskValue = existingEntries.some(v => v.mask_value === true) ? true : false;
+    return {
+      environment: null,
+      mask_value: maskValue,
+      name,
+      value,
+    };
+  });
+
+  // Remove all existing entries for variables we're overriding
+  const overrideNames = new Set(Object.keys(changesetVariables));
   const keptVars = existingVars.filter(v => !overrideNames.has(v.name));
 
   doc.variable = [...keptVars, ...injectedVars];
