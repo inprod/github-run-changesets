@@ -1380,7 +1380,7 @@ describe('run — changeset variables', () => {
     expect(body).toContain('secret123');
     expect(body).toContain('API_TOKEN');
     expect(body).toContain('token456');
-    expect(body).toContain('mask_value: true');
+    expect(body).toContain('mask_value: false');
   });
 
   test('fails with invalid changeset_variables format', async () => {
@@ -1611,19 +1611,20 @@ action:
   - action: gencloud-create
     object_type: RoutingQueue`;
 
-  test('injects new variables with mask_value: true', () => {
+  test('injects new variables with mask_value: false by default', () => {
     const result = injectYamlVariables(baseYaml, { NEW_VAR: 'new_value' });
     expect(result).toContain('name: NEW_VAR');
     expect(result).toContain('value: new_value');
-    expect(result).toContain('mask_value: true');
+    expect(result).toContain('mask_value: false');
   });
 
-  test('replaces all entries for an existing variable name', () => {
+  test('when overriding variable with mask_value: true in existing entry, preserves true', () => {
     const result = injectYamlVariables(baseYaml, { existing_var: 'replaced_value' });
     // Should have exactly one entry for existing_var (the injected one)
     const matches = result.match(/name: existing_var/g);
     expect(matches).toHaveLength(1);
     expect(result).toContain('value: replaced_value');
+    expect(result).toContain('mask_value: true');
     expect(result).not.toContain('old_value');
     expect(result).not.toContain('dev_value');
   });
@@ -1647,14 +1648,16 @@ variable:
     expect(result).not.toContain('value: old');
   });
 
-  test('sets environment to null for injected variables', () => {
-    const result = injectYamlVariables(baseYaml, { MY_VAR: 'val' });
+  test('sets environment to null for injected variables and removes all others', () => {
+    const result = injectYamlVariables(baseYaml, { existing_var: 'val' });
     // Parse back to verify structure
     const yaml = require('js-yaml');
     const doc = yaml.load(result);
-    const injected = doc.variable.find(v => v.name === 'MY_VAR');
+    const injected = doc.variable.find(v => v.name === 'existing_var');
     expect(injected.environment).toBeNull();
-    expect(injected.mask_value).toBe(true);
+    // Should have exactly one entry for existing_var
+    const allExisting = doc.variable.filter(v => v.name === 'existing_var');
+    expect(allExisting).toHaveLength(1);
   });
 
   test('handles yaml with empty variable array', () => {
@@ -1671,14 +1674,18 @@ variable:
     expect(result).toContain('value: value');
   });
 
-  test('injects multiple variables at once', () => {
-    const result = injectYamlVariables(baseYaml, { VAR_A: 'aaa', VAR_B: 'bbb' });
+  test('injects multiple variables at once, preserving mask_value from existing', () => {
+    const result = injectYamlVariables(baseYaml, { VAR_A: 'aaa', existing_var: 'bbb' });
     const yaml = require('js-yaml');
     const doc = yaml.load(result);
     const varA = doc.variable.find(v => v.name === 'VAR_A');
-    const varB = doc.variable.find(v => v.name === 'VAR_B');
-    expect(varA).toEqual({ environment: null, mask_value: true, name: 'VAR_A', value: 'aaa' });
-    expect(varB).toEqual({ environment: null, mask_value: true, name: 'VAR_B', value: 'bbb' });
+    const varB = doc.variable.find(v => v.name === 'existing_var');
+    // VAR_A is new, should have false (no existing entries with true)
+    expect(varA).toEqual({ environment: null, mask_value: false, name: 'VAR_A', value: 'aaa' });
+    // existing_var has entries with mask_value: true, should preserve it
+    expect(varB.environment).toBeNull();
+    expect(varB.mask_value).toBe(true);
+    expect(varB.value).toBe('bbb');
   });
 });
 
@@ -1790,10 +1797,10 @@ describe('run — JSON file format', () => {
     // All existing DogsName entries should be removed, replaced with one injected entry
     const dogsEntries = body.variable.filter(v => v.name === 'DogsName');
     expect(dogsEntries).toHaveLength(1);
-    expect(dogsEntries[0]).toEqual({ environment: null, mask_value: true, name: 'DogsName', value: 'overridden' });
+    expect(dogsEntries[0]).toEqual({ environment: null, mask_value: false, name: 'DogsName', value: 'overridden' });
     // New variable should be added
     const newVarEntry = body.variable.find(v => v.name === 'NewVar');
-    expect(newVarEntry).toEqual({ environment: null, mask_value: true, name: 'NewVar', value: 'newval' });
+    expect(newVarEntry).toEqual({ environment: null, mask_value: false, name: 'NewVar', value: 'newval' });
     expect(mockCore.setFailed).not.toHaveBeenCalled();
   });
 });
@@ -1811,17 +1818,26 @@ describe('injectJsonVariables', () => {
     action: [{ action: 'gencloud-create' }]
   }, null, 2);
 
-  test('injects new variables with mask_value: true', () => {
+  test('injects new variables with mask_value: false by default', () => {
     const result = JSON.parse(injectJsonVariables(baseJson, { NEW_VAR: 'new_value' }));
     const injected = result.variable.find(v => v.name === 'NEW_VAR');
-    expect(injected).toEqual({ environment: null, mask_value: true, name: 'NEW_VAR', value: 'new_value' });
+    expect(injected).toEqual({ environment: null, mask_value: false, name: 'NEW_VAR', value: 'new_value' });
   });
 
-  test('replaces all entries for an existing variable name', () => {
+  test('when overriding variable with only mask_value: false entries, uses false', () => {
     const result = JSON.parse(injectJsonVariables(baseJson, { existing_var: 'replaced_value' }));
     const matches = result.variable.filter(v => v.name === 'existing_var');
     expect(matches).toHaveLength(1);
     expect(matches[0].value).toBe('replaced_value');
+    expect(matches[0].mask_value).toBe(false);
+    expect(matches[0].environment).toBeNull();
+  });
+
+  test('when overriding variable with mask_value: true in existing entry, preserves true', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { keep_var: 'new_value' }));
+    const matches = result.variable.filter(v => v.name === 'keep_var');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].value).toBe('new_value');
     expect(matches[0].mask_value).toBe(true);
     expect(matches[0].environment).toBeNull();
   });
@@ -1846,12 +1862,14 @@ describe('injectJsonVariables', () => {
     expect(result.variable[0].name).toBe('NEW_VAR');
   });
 
-  test('injects multiple variables at once', () => {
-    const result = JSON.parse(injectJsonVariables(baseJson, { VAR_A: 'aaa', VAR_B: 'bbb' }));
+  test('injects multiple variables at once, preserving mask_value from existing', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { VAR_A: 'aaa', keep_var: 'bbb' }));
     const varA = result.variable.find(v => v.name === 'VAR_A');
-    const varB = result.variable.find(v => v.name === 'VAR_B');
-    expect(varA).toEqual({ environment: null, mask_value: true, name: 'VAR_A', value: 'aaa' });
-    expect(varB).toEqual({ environment: null, mask_value: true, name: 'VAR_B', value: 'bbb' });
+    const varB = result.variable.find(v => v.name === 'keep_var');
+    // VAR_A is new, should have false (no existing entries with true)
+    expect(varA).toEqual({ environment: null, mask_value: false, name: 'VAR_A', value: 'aaa' });
+    // keep_var exists with mask_value: true, should preserve it
+    expect(varB).toEqual({ environment: null, mask_value: true, name: 'keep_var', value: 'bbb' });
   });
 
   test('preserves other JSON fields', () => {
