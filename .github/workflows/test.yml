@@ -75,7 +75,6 @@ jobs:
           base_url: https://your-company.inprod.io
           changeset_file: changesets/test-queue.yaml
           validate_before_execute: false
-          wait_for_completion: false
 
       - name: Display submission result
         run: |
@@ -116,7 +115,6 @@ jobs:
           changeset_file: changesets/test-queue.yaml
           environment: Development
           validate_before_execute: false
-          wait_for_completion: false
         continue-on-error: true
 
       - name: Display result
@@ -201,7 +199,6 @@ jobs:
           base_url: https://your-company.inprod.io
           changeset_file: changesets/wait-test.yaml
           environment: Development
-          wait_for_completion: true
           polling_timeout_minutes: 5
 
       - name: Display execution result
@@ -253,7 +250,6 @@ jobs:
           base_url: https://test.inprod.io
           changeset_file: changesets/minimal.yaml
           validate_before_execute: false
-          wait_for_completion: false
         continue-on-error: true
 
       - name: Test with timeout configuration
@@ -264,7 +260,6 @@ jobs:
           base_url: https://test.inprod.io
           changeset_file: changesets/timeout-test.yaml
           validate_before_execute: false
-          wait_for_completion: false
           polling_timeout_minutes: 30
         continue-on-error: true
 
