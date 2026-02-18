@@ -86,6 +86,27 @@ function injectYamlVariables(content, changesetVariables) {
   return yaml.dump(doc, { lineWidth: -1, noRefs: true });
 }
 
+function injectJsonVariables(content, changesetVariables) {
+  const doc = JSON.parse(content);
+
+  // Build new variable entries from the provided changeset variables
+  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => ({
+    environment: null,
+    mask_value: true,
+    name,
+    value,
+  }));
+
+  // Remove existing entries for variables we're overriding
+  const overrideNames = new Set(Object.keys(changesetVariables));
+  const existingVars = Array.isArray(doc.variable) ? doc.variable : [];
+  const keptVars = existingVars.filter(v => !overrideNames.has(v.name));
+
+  doc.variable = [...keptVars, ...injectedVars];
+
+  return JSON.stringify(doc, null, 2);
+}
+
 function getFileFormat(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.json') return 'json';
@@ -139,11 +160,7 @@ async function validateFile(filePath, options) {
   let body, contentType;
   if (format === 'json') {
     contentType = 'application/json';
-    const requestPayload = {
-      changeset: content,
-      ...(changesetVariables && { variables: changesetVariables })
-    };
-    body = JSON.stringify(requestPayload);
+    body = changesetVariables ? injectJsonVariables(content, changesetVariables) : content;
   } else {
     contentType = 'application/yaml';
     body = changesetVariables ? injectYamlVariables(content, changesetVariables) : content;
@@ -236,11 +253,7 @@ async function executeFile(filePath, options) {
   let body, contentType;
   if (format === 'json') {
     contentType = 'application/json';
-    const requestPayload = {
-      changeset: content,
-      ...(changesetVariables && { variables: changesetVariables })
-    };
-    body = JSON.stringify(requestPayload);
+    body = changesetVariables ? injectJsonVariables(content, changesetVariables) : content;
   } else {
     contentType = 'application/yaml';
     body = changesetVariables ? injectYamlVariables(content, changesetVariables) : content;
@@ -554,7 +567,7 @@ async function run() {
   }
 }
 
-module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, injectYamlVariables };
+module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, injectYamlVariables, injectJsonVariables };
 
 /* istanbul ignore next */
 if (require.main === module) {

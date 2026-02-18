@@ -21,7 +21,7 @@ jest.mock('@actions/core', () => mockCore);
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-const { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, injectYamlVariables } = require('./index');
+const { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, injectYamlVariables, injectJsonVariables } = require('./index');
 
 // Helpers
 function mockInputs(inputs) {
@@ -1685,11 +1685,16 @@ variable:
 // ─── run() — JSON file format ──────────────────────────────────────────────
 
 describe('run — JSON file format', () => {
-  const SAMPLE_JSON_CHANGESET = JSON.stringify({
+  const SAMPLE_JSON_CHANGESET_OBJ = {
     name: 'Test Queue',
     environment: 'Development',
+    variable: [
+      { environment: null, mask_value: false, name: 'DogsName', value: 'global value' },
+      { environment: 1, mask_value: false, name: 'DogsName', value: 'dev value' },
+    ],
     action: [{ action: 'gencloud-create', object_type: 'RoutingQueue', data: { name: 'Test Queue' } }]
-  });
+  };
+  const SAMPLE_JSON_CHANGESET = JSON.stringify(SAMPLE_JSON_CHANGESET_OBJ, null, 2);
   const SAMPLE_JSON_FILE = path.join(__dirname, '__test_changeset_sample__.json');
 
   beforeAll(() => {
@@ -1724,9 +1729,9 @@ describe('run — JSON file format', () => {
         headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
       })
     );
-    // Body should be JSON with changeset field
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.changeset).toBe(SAMPLE_JSON_CHANGESET);
+    // Body should be raw JSON changeset content (not wrapped)
+    const body = mockFetch.mock.calls[0][1].body;
+    expect(body).toBe(SAMPLE_JSON_CHANGESET);
     expect(mockCore.setFailed).not.toHaveBeenCalled();
   });
 
@@ -1754,16 +1759,19 @@ describe('run — JSON file format', () => {
         headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
       })
     );
+    // Body should be raw JSON changeset content (not wrapped)
+    const body = mockFetch.mock.calls[0][1].body;
+    expect(body).toBe(SAMPLE_JSON_CHANGESET);
     expect(mockCore.setFailed).not.toHaveBeenCalled();
   });
 
-  test('includes variables in JSON payload for .json files', async () => {
+  test('injects variables into JSON changeset body for .json files', async () => {
     mockInputs({
       api_key: 'key',
       base_url: 'https://test.inprod.io',
       changeset_file: SAMPLE_JSON_FILE,
       validate_before_execute: 'false',
-      changeset_variables: 'DB_PASSWORD=secret\nAPI_KEY=key123',
+      changeset_variables: 'DogsName=overridden\nNewVar=newval',
     });
 
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
@@ -1776,8 +1784,79 @@ describe('run — JSON file format', () => {
     await promise;
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.changeset).toBe(SAMPLE_JSON_CHANGESET);
-    expect(body.variables).toEqual({ DB_PASSWORD: 'secret', API_KEY: 'key123' });
+    // Should NOT have a wrapper changeset/variables field
+    expect(body.changeset).toBeUndefined();
+    expect(body.variables).toBeUndefined();
+    // All existing DogsName entries should be removed, replaced with one injected entry
+    const dogsEntries = body.variable.filter(v => v.name === 'DogsName');
+    expect(dogsEntries).toHaveLength(1);
+    expect(dogsEntries[0]).toEqual({ environment: null, mask_value: true, name: 'DogsName', value: 'overridden' });
+    // New variable should be added
+    const newVarEntry = body.variable.find(v => v.name === 'NewVar');
+    expect(newVarEntry).toEqual({ environment: null, mask_value: true, name: 'NewVar', value: 'newval' });
     expect(mockCore.setFailed).not.toHaveBeenCalled();
+  });
+});
+
+// ─── injectJsonVariables ────────────────────────────────────────────────────
+
+describe('injectJsonVariables', () => {
+  const baseJson = JSON.stringify({
+    name: 'Test Queue',
+    variable: [
+      { environment: null, mask_value: false, name: 'existing_var', value: 'old_value' },
+      { environment: 1, mask_value: false, name: 'existing_var', value: 'dev_value' },
+      { environment: null, mask_value: true, name: 'keep_var', value: 'kept' },
+    ],
+    action: [{ action: 'gencloud-create' }]
+  }, null, 2);
+
+  test('injects new variables with mask_value: true', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { NEW_VAR: 'new_value' }));
+    const injected = result.variable.find(v => v.name === 'NEW_VAR');
+    expect(injected).toEqual({ environment: null, mask_value: true, name: 'NEW_VAR', value: 'new_value' });
+  });
+
+  test('replaces all entries for an existing variable name', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { existing_var: 'replaced_value' }));
+    const matches = result.variable.filter(v => v.name === 'existing_var');
+    expect(matches).toHaveLength(1);
+    expect(matches[0].value).toBe('replaced_value');
+    expect(matches[0].mask_value).toBe(true);
+    expect(matches[0].environment).toBeNull();
+  });
+
+  test('preserves existing variables that are not overridden', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { existing_var: 'new' }));
+    const kept = result.variable.find(v => v.name === 'keep_var');
+    expect(kept).toEqual({ environment: null, mask_value: true, name: 'keep_var', value: 'kept' });
+  });
+
+  test('handles JSON with empty variable array', () => {
+    const jsonEmpty = JSON.stringify({ name: 'Test', variable: [] });
+    const result = JSON.parse(injectJsonVariables(jsonEmpty, { NEW_VAR: 'value' }));
+    expect(result.variable).toHaveLength(1);
+    expect(result.variable[0].name).toBe('NEW_VAR');
+  });
+
+  test('handles JSON with no variable field', () => {
+    const jsonNoVar = JSON.stringify({ name: 'Test', environment: 'Dev' });
+    const result = JSON.parse(injectJsonVariables(jsonNoVar, { NEW_VAR: 'value' }));
+    expect(result.variable).toHaveLength(1);
+    expect(result.variable[0].name).toBe('NEW_VAR');
+  });
+
+  test('injects multiple variables at once', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { VAR_A: 'aaa', VAR_B: 'bbb' }));
+    const varA = result.variable.find(v => v.name === 'VAR_A');
+    const varB = result.variable.find(v => v.name === 'VAR_B');
+    expect(varA).toEqual({ environment: null, mask_value: true, name: 'VAR_A', value: 'aaa' });
+    expect(varB).toEqual({ environment: null, mask_value: true, name: 'VAR_B', value: 'bbb' });
+  });
+
+  test('preserves other JSON fields', () => {
+    const result = JSON.parse(injectJsonVariables(baseJson, { NEW_VAR: 'val' }));
+    expect(result.name).toBe('Test Queue');
+    expect(result.action).toEqual([{ action: 'gencloud-create' }]);
   });
 });
