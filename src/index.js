@@ -2,6 +2,7 @@ const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
 const { globSync } = require('glob');
+const yaml = require('js-yaml');
 
 async function pollTask(baseUrl, apiKey, taskId, label, pollingTimeoutSeconds) {
   const pollInterval = 5; // seconds
@@ -64,27 +65,31 @@ function buildUrl(baseUrl, endpoint, environment) {
   return `${baseUrl}${endpoint}${envParam}`;
 }
 
+function injectYamlVariables(content, changesetVariables) {
+  const doc = yaml.load(content);
+
+  // Build new variable entries from the provided changeset variables
+  const injectedVars = Object.entries(changesetVariables).map(([name, value]) => ({
+    environment: null,
+    mask_value: true,
+    name,
+    value,
+  }));
+
+  // Remove existing entries for variables we're overriding
+  const overrideNames = new Set(Object.keys(changesetVariables));
+  const existingVars = Array.isArray(doc.variable) ? doc.variable : [];
+  const keptVars = existingVars.filter(v => !overrideNames.has(v.name));
+
+  doc.variable = [...keptVars, ...injectedVars];
+
+  return yaml.dump(doc, { lineWidth: -1, noRefs: true });
+}
+
 function getFileFormat(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.json') return 'json';
   return 'yaml'; // .yaml, .yml, or any other extension defaults to yaml
-}
-
-function buildYamlPayload(content, variables) {
-  // Indent each line of the changeset content for YAML block scalar
-  const indentedContent = content.split('\n').map(line => '  ' + line).join('\n');
-  let yaml = `changeset: |\n${indentedContent}`;
-
-  if (variables && Object.keys(variables).length > 0) {
-    yaml += '\nvariables:';
-    for (const [key, value] of Object.entries(variables)) {
-      // Quote values to safely handle special YAML characters
-      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      yaml += `\n  ${key}: "${escaped}"`;
-    }
-  }
-
-  return yaml;
 }
 
 function isGlobPattern(pattern) {
@@ -141,7 +146,7 @@ async function validateFile(filePath, options) {
     body = JSON.stringify(requestPayload);
   } else {
     contentType = 'application/yaml';
-    body = buildYamlPayload(content, changesetVariables);
+    body = changesetVariables ? injectYamlVariables(content, changesetVariables) : content;
   }
 
   core.debug(`Sending validation request to: ${validateUrl}`);
@@ -238,7 +243,7 @@ async function executeFile(filePath, options) {
     body = JSON.stringify(requestPayload);
   } else {
     contentType = 'application/yaml';
-    body = buildYamlPayload(content, changesetVariables);
+    body = changesetVariables ? injectYamlVariables(content, changesetVariables) : content;
   }
 
   core.debug(`Sending API request to: ${executeUrl}`);
@@ -549,7 +554,7 @@ async function run() {
   }
 }
 
-module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, buildYamlPayload };
+module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, injectYamlVariables };
 
 /* istanbul ignore next */
 if (require.main === module) {
