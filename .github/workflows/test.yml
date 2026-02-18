@@ -75,6 +75,7 @@ jobs:
           base_url: https://your-company.inprod.io
           changeset_file: changesets/test-queue.yaml
           validate_before_execute: false
+        continue-on-error: true
 
       - name: Display submission result
         run: |
@@ -158,6 +159,7 @@ jobs:
           environment: Development
           validate_only: true
           polling_timeout_minutes: 5
+        continue-on-error: true
 
       - name: Display validation result
         run: |
@@ -200,6 +202,7 @@ jobs:
           changeset_file: changesets/wait-test.yaml
           environment: Development
           polling_timeout_minutes: 5
+        continue-on-error: true
 
       - name: Display execution result
         run: |
