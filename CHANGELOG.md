@@ -5,6 +5,19 @@ All notable changes to the InProd Run Changesets GitHub Action will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-02-18
+
+### Fixed
+
+#### Changeset Variables
+- **mask_value Preservation** — When injecting changeset variables, `mask_value` is now preserved from existing entries instead of always being set to `true`. If any existing entry has `mask_value: true`, it remains `true`; otherwise it defaults to `false`
+- **Variable Deduplication** — Fixed issue where multiple scope-specific entries for the same variable could interfere with injected values. Now removes all other records when overriding a variable, keeping only one with `environment: null` to prevent environment-scoped values from being applied
+- **Variable Injection Logic** — Improved handling of changeset variables to prevent conflicts with environment-specific variable scopes
+
+### Changed
+
+- Variable injection now properly deduplicates entries to prevent scope conflicts
+
 ## [1.0.0] - 2026-02-18
 
 ### Initial Release

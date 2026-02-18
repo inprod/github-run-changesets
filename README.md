@@ -3,7 +3,7 @@
 ![Tests](https://github.com/inprod/github-run-changesets/actions/workflows/tests.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-blue)
 ![Node.js](https://img.shields.io/badge/node.js-18%2B-green)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![GitHub Action](https://img.shields.io/badge/github-action-blue)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
 
