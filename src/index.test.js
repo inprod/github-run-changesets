@@ -569,8 +569,8 @@ describe('run — changeset file resolution', () => {
     await promise;
 
     const callArgs = mockFetch.mock.calls[0]; // First call is execute
-    // YAML files are sent as text/yaml with buildYamlPayload format
-    expect(callArgs[1].headers['Content-Type']).toBe('text/yaml');
+    // YAML files are sent as application/yaml with buildYamlPayload format
+    expect(callArgs[1].headers['Content-Type']).toBe('application/yaml');
     expect(callArgs[1].body).toContain('changeset: |');
     expect(callArgs[1].body).toContain('name: Test Queue');
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Read changeset from file'));
@@ -719,7 +719,7 @@ describe('run — execute without validation', () => {
         method: 'POST',
         headers: {
           'Authorization': 'Api-Key key',
-          'Content-Type': 'text/yaml',
+          'Content-Type': 'application/yaml',
         },
       })
     );
@@ -1375,7 +1375,7 @@ describe('run — changeset variables', () => {
 
     // Verify the first fetch call (execute) has variables in YAML request body
     const callArgs = mockFetch.mock.calls[0];
-    expect(callArgs[1].headers['Content-Type']).toBe('text/yaml');
+    expect(callArgs[1].headers['Content-Type']).toBe('application/yaml');
     expect(callArgs[1].body).toContain('variables:');
     expect(callArgs[1].body).toContain('DATABASE_PASSWORD: "secret123"');
     expect(callArgs[1].body).toContain('API_TOKEN: "token456"');
@@ -1406,7 +1406,7 @@ describe('run — changeset variables', () => {
     expect(postCalls.length).toBeGreaterThanOrEqual(2); // validate and execute
     postCalls.forEach(call => {
       expect(call[0]).toContain('inprod.io');
-      expect(call[1].headers['Content-Type']).toBe('text/yaml');
+      expect(call[1].headers['Content-Type']).toBe('application/yaml');
       expect(call[1].body).toContain('changeset: |');
       expect(call[1].body).toContain('variables:');
       expect(call[1].body).toContain('DB_USER: "admin"');
@@ -1525,7 +1525,7 @@ describe('run — changeset variables', () => {
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
     expect(postCalls.length).toBe(3); // 3 files
     postCalls.forEach(call => {
-      expect(call[1].headers['Content-Type']).toBe('text/yaml');
+      expect(call[1].headers['Content-Type']).toBe('application/yaml');
       expect(call[1].body).toContain('variables:');
       expect(call[1].body).toContain('DB_PASSWORD: "secret"');
       expect(call[1].body).toContain('API_KEY: "key123"');

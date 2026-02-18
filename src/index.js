@@ -140,7 +140,7 @@ async function validateFile(filePath, options) {
     };
     body = JSON.stringify(requestPayload);
   } else {
-    contentType = 'text/yaml';
+    contentType = 'application/yaml';
     body = buildYamlPayload(content, changesetVariables);
   }
 
@@ -237,7 +237,7 @@ async function executeFile(filePath, options) {
     };
     body = JSON.stringify(requestPayload);
   } else {
-    contentType = 'text/yaml';
+    contentType = 'application/yaml';
     body = buildYamlPayload(content, changesetVariables);
   }
 
