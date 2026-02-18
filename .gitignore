@@ -4,7 +4,7 @@ node_modules/
 yarn.lock
 
 # Build output
-dist/
+# dist/ is committed to repository for GitHub Actions distribution
 
 # IDE
 .vscode/
