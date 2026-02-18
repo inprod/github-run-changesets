@@ -520,6 +520,33 @@ describe('run — input validation', () => {
 
     expect(mockCore.setSecret).toHaveBeenCalledWith('secret-key');
   });
+
+  test('removes trailing slash from base_url to prevent double slashes in API URLs', async () => {
+    mockInputs({
+      api_key: 'key',
+      base_url: 'https://test.inprod.io/',
+      changeset_file: SAMPLE_CHANGESET_FILE,
+      validate_before_execute: 'false'
+    });
+    const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
+    mockFetch
+      .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
+      .mockResolvedValueOnce(mockFetchResponse(200, successPollResponse(execResult)));
+
+    const promise = run();
+    await jest.advanceTimersByTimeAsync(5000);
+    await promise;
+
+    // Verify the API was called with a URL that doesn't have double slashes (like //api/v1...)
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('https://test.inprod.io/api/v1/change-set/change-set/execute_yaml/'),
+      expect.any(Object)
+    );
+    // Ensure no double slashes in the URL path
+    const callUrl = mockFetch.mock.calls[0][0];
+    expect(callUrl).not.toMatch(/inprod\.io\/\//);
+    expect(mockCore.setFailed).not.toHaveBeenCalled();
+  });
 });
 
 // ─── run() — Changeset File Resolution ───────────────────────────────────

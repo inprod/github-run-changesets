@@ -25958,7 +25958,7 @@ async function run() {
   try {
     // Get inputs (fall back to environment variables for api_key and base_url)
     const apiKey = core.getInput('api_key') || process.env.INPROD_API_KEY || '';
-    const baseUrl = core.getInput('base_url') || process.env.INPROD_BASE_URL || '';
+    const baseUrl = (core.getInput('base_url') || process.env.INPROD_BASE_URL || '').replace(/\/$/, '');
     const changesetFile = core.getInput('changeset_file', { required: true });
     const environment = core.getInput('environment');
     const validateBeforeExecute = core.getInput('validate_before_execute') !== 'false';
