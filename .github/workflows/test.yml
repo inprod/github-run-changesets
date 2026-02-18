@@ -78,6 +78,7 @@ jobs:
         continue-on-error: true
 
       - name: Display submission result
+        if: always()
         run: |
           echo "Task ID: ${{ steps.inprod-submit.outputs.task_id }}"
           echo "Status: ${{ steps.inprod-submit.outputs.status }}"
@@ -119,6 +120,7 @@ jobs:
         continue-on-error: true
 
       - name: Display result
+        if: always()
         run: |
           echo "Task ID: ${{ steps.inprod-file.outputs.task_id }}"
           echo "Status: ${{ steps.inprod-file.outputs.status }}"
@@ -162,6 +164,7 @@ jobs:
         continue-on-error: true
 
       - name: Display validation result
+        if: always()
         run: |
           echo "Task ID: ${{ steps.inprod-validate.outputs.task_id }}"
           echo "Status: ${{ steps.inprod-validate.outputs.status }}"
@@ -205,6 +208,7 @@ jobs:
         continue-on-error: true
 
       - name: Display execution result
+        if: always()
         run: |
           echo "Task ID: ${{ steps.inprod-execute.outputs.task_id }}"
           echo "Status: ${{ steps.inprod-execute.outputs.status }}"
@@ -267,6 +271,7 @@ jobs:
         continue-on-error: true
 
       - name: Display test results
+        if: always()
         run: |
           echo "Minimal inputs test completed"
           echo "Timeout configuration test completed"
