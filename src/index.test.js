@@ -21,7 +21,7 @@ jest.mock('@actions/core', () => mockCore);
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-const { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus } = require('./index');
+const { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, buildYamlPayload } = require('./index');
 
 // Helpers
 function mockInputs(inputs) {
@@ -552,7 +552,7 @@ describe('run — input validation', () => {
 // ─── run() — Changeset File Resolution ───────────────────────────────────
 
 describe('run — changeset file resolution', () => {
-  test('reads changeset_file and sends content', async () => {
+  test('reads changeset_file and sends content in yaml payload', async () => {
     mockInputs({
       api_key: 'key',
       base_url: 'https://test.inprod.io',
@@ -569,8 +569,10 @@ describe('run — changeset file resolution', () => {
     await promise;
 
     const callArgs = mockFetch.mock.calls[0]; // First call is execute
-    const body = JSON.parse(callArgs[1].body);
-    expect(body.changeset).toBe(SAMPLE_CHANGESET);
+    // YAML files are sent as text/yaml with buildYamlPayload format
+    expect(callArgs[1].headers['Content-Type']).toBe('text/yaml');
+    expect(callArgs[1].body).toContain('changeset: |');
+    expect(callArgs[1].body).toContain('name: Test Queue');
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Read changeset from file'));
   });
 });
@@ -700,7 +702,7 @@ describe('run — execute without validation', () => {
     );
   });
 
-  test('sends correct headers on execute', async () => {
+  test('sends correct headers on execute for yaml files', async () => {
     mockInputs({ ...baseInputs });
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
@@ -717,7 +719,7 @@ describe('run — execute without validation', () => {
         method: 'POST',
         headers: {
           'Authorization': 'Api-Key key',
-          'Content-Type': 'application/json',
+          'Content-Type': 'text/yaml',
         },
       })
     );
@@ -1356,13 +1358,12 @@ describe('run — changeset variables', () => {
     validate_before_execute: 'false',
   };
 
-  test('passes changeset variables in validation request', async () => {
-    const variables = { DATABASE_PASSWORD: 'secret123', API_TOKEN: 'token456' };
-    mockInputs({ 
-      ...baseInputs, 
+  test('passes changeset variables in yaml request body', async () => {
+    mockInputs({
+      ...baseInputs,
       changeset_variables: 'DATABASE_PASSWORD=secret123\nAPI_TOKEN=token456'
     });
-    
+
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
       .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
@@ -1372,25 +1373,21 @@ describe('run — changeset variables', () => {
     await jest.advanceTimersByTimeAsync(5000);
     await promise;
 
-    // Verify the first fetch call (execute) has variables in request body
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        method: 'POST',
-        body: expect.stringContaining('"variables":{'),
-        headers: expect.objectContaining({ 'Content-Type': 'application/json' })
-      })
-    );
+    // Verify the first fetch call (execute) has variables in YAML request body
+    const callArgs = mockFetch.mock.calls[0];
+    expect(callArgs[1].headers['Content-Type']).toBe('text/yaml');
+    expect(callArgs[1].body).toContain('variables:');
+    expect(callArgs[1].body).toContain('DATABASE_PASSWORD: "secret123"');
+    expect(callArgs[1].body).toContain('API_TOKEN: "token456"');
   });
 
-  test('passes changeset variables in execute request', async () => {
-    const variables = { DB_USER: 'admin', ENCRYPTION_KEY: 'key123' };
-    mockInputs({ 
+  test('passes changeset variables in both validate and execute yaml requests', async () => {
+    mockInputs({
       ...baseInputs,
       validate_before_execute: 'true',
       changeset_variables: 'DB_USER=admin\nENCRYPTION_KEY=key123'
     });
-    
+
     const validResult = { is_valid: true };
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
@@ -1404,15 +1401,16 @@ describe('run — changeset variables', () => {
     await jest.advanceTimersByTimeAsync(5000);
     await promise;
 
-    // Verify all POST requests include variables in body
+    // Verify all POST requests include variables in YAML body
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
     expect(postCalls.length).toBeGreaterThanOrEqual(2); // validate and execute
     postCalls.forEach(call => {
       expect(call[0]).toContain('inprod.io');
-      expect(call[1].headers['Content-Type']).toBe('application/json');
-      const body = JSON.parse(call[1].body);
-      expect(body).toHaveProperty('changeset');
-      expect(body).toHaveProperty('variables');
+      expect(call[1].headers['Content-Type']).toBe('text/yaml');
+      expect(call[1].body).toContain('changeset: |');
+      expect(call[1].body).toContain('variables:');
+      expect(call[1].body).toContain('DB_USER: "admin"');
+      expect(call[1].body).toContain('ENCRYPTION_KEY: "key123"');
     });
   });
 
@@ -1497,9 +1495,8 @@ describe('run — changeset variables', () => {
     );
   });
 
-  test('works with multiple files and changeset variables', async () => {
+  test('works with multiple yaml files and changeset variables', async () => {
     const globPattern = path.join(__dirname, '__test_0*__.yaml');
-    const variables = { DB_PASSWORD: 'secret', API_KEY: 'key123' };
     mockInputs({
       api_key: 'key',
       base_url: 'https://test.inprod.io',
@@ -1524,21 +1521,23 @@ describe('run — changeset variables', () => {
     await jest.advanceTimersByTimeAsync(15000);
     await promise;
 
-    // Verify all files included variables
+    // Verify all files included variables in YAML body
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
     expect(postCalls.length).toBe(3); // 3 files
     postCalls.forEach(call => {
-      const body = JSON.parse(call[1].body);
-      expect(body.variables).toEqual(variables);
+      expect(call[1].headers['Content-Type']).toBe('text/yaml');
+      expect(call[1].body).toContain('variables:');
+      expect(call[1].body).toContain('DB_PASSWORD: "secret"');
+      expect(call[1].body).toContain('API_KEY: "key123"');
     });
   });
 
   test('handles changeset variables with values containing equals signs', async () => {
-    mockInputs({ 
+    mockInputs({
       ...baseInputs,
       changeset_variables: 'CONNECTION_STRING=user=admin;password=secret123;host=db.local'
     });
-    
+
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
       .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
@@ -1548,24 +1547,23 @@ describe('run — changeset variables', () => {
     await jest.advanceTimersByTimeAsync(5000);
     await promise;
 
-    // Verify value with equals signs is handled correctly
+    // Verify value with equals signs is handled correctly in YAML body
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
-    const body = JSON.parse(postCalls[0][1].body);
-    expect(body.variables.CONNECTION_STRING).toBe('user=admin;password=secret123;host=db.local');
+    expect(postCalls[0][1].body).toContain('CONNECTION_STRING: "user=admin;password=secret123;host=db.local"');
   });
 
-  test('skipsnull lines and comments in changeset variables', async () => {
-    mockInputs({ 
+  test('skips null lines and comments in changeset variables', async () => {
+    mockInputs({
       ...baseInputs,
       changeset_variables: `
         # This is a comment
         API_KEY=secret123
-        
+
         # Another comment
         DB_PASSWORD=dbpass456
       `
     });
-    
+
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
       .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
@@ -1577,19 +1575,18 @@ describe('run — changeset variables', () => {
 
     // Should skip comments and empty lines
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
-    const body = JSON.parse(postCalls[0][1].body);
-    expect(body.variables).toEqual({
-      API_KEY: 'secret123',
-      DB_PASSWORD: 'dbpass456'
-    });
+    const body = postCalls[0][1].body;
+    expect(body).toContain('API_KEY: "secret123"');
+    expect(body).toContain('DB_PASSWORD: "dbpass456"');
+    expect(body).not.toContain('# This is a comment');
   });
 
   test('trims whitespace from keys and values', async () => {
-    mockInputs({ 
+    mockInputs({
       ...baseInputs,
       changeset_variables: '  API_KEY  =  secret123  \n  DB_USER  =  admin  '
     });
-    
+
     const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
     mockFetch
       .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
@@ -1601,10 +1598,175 @@ describe('run — changeset variables', () => {
 
     // Should trim whitespace
     const postCalls = mockFetch.mock.calls.filter(call => call[1].method === 'POST');
-    const body = JSON.parse(postCalls[0][1].body);
-    expect(body.variables).toEqual({
-      API_KEY: 'secret123',
-      DB_USER: 'admin'
+    const body = postCalls[0][1].body;
+    expect(body).toContain('API_KEY: "secret123"');
+    expect(body).toContain('DB_USER: "admin"');
+  });
+});
+
+// ─── getFileFormat ──────────────────────────────────────────────────────────
+
+describe('getFileFormat', () => {
+  test('returns yaml for .yaml files', () => {
+    expect(getFileFormat('changeset.yaml')).toBe('yaml');
+  });
+
+  test('returns yaml for .yml files', () => {
+    expect(getFileFormat('changeset.yml')).toBe('yaml');
+  });
+
+  test('returns json for .json files', () => {
+    expect(getFileFormat('changeset.json')).toBe('json');
+  });
+
+  test('returns yaml for unknown extensions (default)', () => {
+    expect(getFileFormat('changeset.txt')).toBe('yaml');
+    expect(getFileFormat('changeset')).toBe('yaml');
+  });
+
+  test('is case insensitive', () => {
+    expect(getFileFormat('changeset.JSON')).toBe('json');
+    expect(getFileFormat('changeset.YAML')).toBe('yaml');
+    expect(getFileFormat('changeset.YML')).toBe('yaml');
+  });
+});
+
+// ─── buildYamlPayload ──────────────────────────────────────────────────────
+
+describe('buildYamlPayload', () => {
+  test('wraps content in a changeset block scalar', () => {
+    const content = 'name: Test\naction: create';
+    const result = buildYamlPayload(content, null);
+    expect(result).toBe('changeset: |\n  name: Test\n  action: create');
+  });
+
+  test('includes variables when provided', () => {
+    const content = 'name: Test';
+    const variables = { DB_USER: 'admin', API_KEY: 'secret' };
+    const result = buildYamlPayload(content, variables);
+    expect(result).toContain('changeset: |');
+    expect(result).toContain('variables:');
+    expect(result).toContain('  DB_USER: "admin"');
+    expect(result).toContain('  API_KEY: "secret"');
+  });
+
+  test('omits variables section when variables is null', () => {
+    const result = buildYamlPayload('name: Test', null);
+    expect(result).not.toContain('variables:');
+  });
+
+  test('omits variables section when variables is empty object', () => {
+    const result = buildYamlPayload('name: Test', {});
+    expect(result).not.toContain('variables:');
+  });
+
+  test('escapes double quotes in variable values', () => {
+    const result = buildYamlPayload('name: Test', { KEY: 'value with "quotes"' });
+    expect(result).toContain('KEY: "value with \\"quotes\\""');
+  });
+
+  test('escapes backslashes in variable values', () => {
+    const result = buildYamlPayload('name: Test', { PATH: 'C:\\Users\\test' });
+    expect(result).toContain('PATH: "C:\\\\Users\\\\test"');
+  });
+});
+
+// ─── run() — JSON file format ──────────────────────────────────────────────
+
+describe('run — JSON file format', () => {
+  const SAMPLE_JSON_CHANGESET = JSON.stringify({
+    name: 'Test Queue',
+    environment: 'Development',
+    action: [{ action: 'gencloud-create', object_type: 'RoutingQueue', data: { name: 'Test Queue' } }]
+  });
+  const SAMPLE_JSON_FILE = path.join(__dirname, '__test_changeset_sample__.json');
+
+  beforeAll(() => {
+    fs.writeFileSync(SAMPLE_JSON_FILE, SAMPLE_JSON_CHANGESET);
+  });
+
+  afterAll(() => {
+    if (fs.existsSync(SAMPLE_JSON_FILE)) fs.unlinkSync(SAMPLE_JSON_FILE);
+  });
+
+  test('uses application/json content type and validate_json endpoint for .json files', async () => {
+    mockInputs({
+      api_key: 'key',
+      base_url: 'https://test.inprod.io',
+      changeset_file: SAMPLE_JSON_FILE,
+      validate_only: 'true',
     });
+
+    const validResult = { is_valid: true, changeset_name: 'Test' };
+    mockFetch
+      .mockResolvedValueOnce(mockFetchResponse(200, validationTaskResponse('v-json')))
+      .mockResolvedValueOnce(mockFetchResponse(200, successPollResponse(validResult)));
+
+    const promise = run();
+    await jest.advanceTimersByTimeAsync(5000);
+    await promise;
+
+    expect(mockFetch).toHaveBeenNthCalledWith(1,
+      'https://test.inprod.io/api/v1/change-set/change-set/validate_json/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      })
+    );
+    // Body should be JSON with changeset field
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.changeset).toBe(SAMPLE_JSON_CHANGESET);
+    expect(mockCore.setFailed).not.toHaveBeenCalled();
+  });
+
+  test('uses execute_json endpoint for .json files', async () => {
+    mockInputs({
+      api_key: 'key',
+      base_url: 'https://test.inprod.io',
+      changeset_file: SAMPLE_JSON_FILE,
+      validate_before_execute: 'false',
+    });
+
+    const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
+    mockFetch
+      .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
+      .mockResolvedValueOnce(mockFetchResponse(200, successPollResponse(execResult)));
+
+    const promise = run();
+    await jest.advanceTimersByTimeAsync(5000);
+    await promise;
+
+    expect(mockFetch).toHaveBeenNthCalledWith(1,
+      'https://test.inprod.io/api/v1/change-set/change-set/execute_json/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      })
+    );
+    expect(mockCore.setFailed).not.toHaveBeenCalled();
+  });
+
+  test('includes variables in JSON payload for .json files', async () => {
+    mockInputs({
+      api_key: 'key',
+      base_url: 'https://test.inprod.io',
+      changeset_file: SAMPLE_JSON_FILE,
+      validate_before_execute: 'false',
+      changeset_variables: 'DB_PASSWORD=secret\nAPI_KEY=key123',
+    });
+
+    const execResult = { run_id: 42, changeset_name: 'Test', environment: { id: 1, name: 'Dev' } };
+    mockFetch
+      .mockResolvedValueOnce(mockFetchResponse(200, executeTaskResponse()))
+      .mockResolvedValueOnce(mockFetchResponse(200, successPollResponse(execResult)));
+
+    const promise = run();
+    await jest.advanceTimersByTimeAsync(5000);
+    await promise;
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.changeset).toBe(SAMPLE_JSON_CHANGESET);
+    expect(body.variables).toEqual({ DB_PASSWORD: 'secret', API_KEY: 'key123' });
+    expect(mockCore.setFailed).not.toHaveBeenCalled();
   });
 });

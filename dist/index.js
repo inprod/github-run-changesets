@@ -25712,6 +25712,29 @@ function buildUrl(baseUrl, endpoint, environment) {
   return `${baseUrl}${endpoint}${envParam}`;
 }
 
+function getFileFormat(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.json') return 'json';
+  return 'yaml'; // .yaml, .yml, or any other extension defaults to yaml
+}
+
+function buildYamlPayload(content, variables) {
+  // Indent each line of the changeset content for YAML block scalar
+  const indentedContent = content.split('\n').map(line => '  ' + line).join('\n');
+  let yaml = `changeset: |\n${indentedContent}`;
+
+  if (variables && Object.keys(variables).length > 0) {
+    yaml += '\nvariables:';
+    for (const [key, value] of Object.entries(variables)) {
+      // Quote values to safely handle special YAML characters
+      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      yaml += `\n  ${key}: "${escaped}"`;
+    }
+  }
+
+  return yaml;
+}
+
 function isGlobPattern(pattern) {
   return /[*?[\]{}]/.test(pattern);
 }
@@ -25747,15 +25770,27 @@ function resolveFiles(changesetFile) {
 async function validateFile(filePath, options) {
   const { apiKey, baseUrl, environment, pollingTimeoutSeconds, changesetVariables } = options;
   const content = fs.readFileSync(filePath, 'utf8');
-  const validateUrl = buildUrl(baseUrl, '/api/v1/change-set/change-set/validate_yaml/', environment);
+  const format = getFileFormat(filePath);
+  const endpoint = format === 'json'
+    ? '/api/v1/change-set/change-set/validate_json/'
+    : '/api/v1/change-set/change-set/validate_yaml/';
+  const validateUrl = buildUrl(baseUrl, endpoint, environment);
 
-  core.debug(`Validate URL: ${validateUrl}`);
+  core.debug(`Validate URL: ${validateUrl} (format: ${format})`);
 
-  // Prepare request payload with changeset and variables
-  const requestPayload = {
-    changeset: content,
-    ...(changesetVariables && { variables: changesetVariables })
-  };
+  // Build request body and content type based on file format
+  let body, contentType;
+  if (format === 'json') {
+    contentType = 'application/json';
+    const requestPayload = {
+      changeset: content,
+      ...(changesetVariables && { variables: changesetVariables })
+    };
+    body = JSON.stringify(requestPayload);
+  } else {
+    contentType = 'text/yaml';
+    body = buildYamlPayload(content, changesetVariables);
+  }
 
   core.debug(`Sending validation request to: ${validateUrl}`);
   let validateResponse;
@@ -25764,9 +25799,9 @@ async function validateFile(filePath, options) {
       method: 'POST',
       headers: {
         'Authorization': `Api-Key ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': contentType
       },
-      body: JSON.stringify(requestPayload)
+      body
     });
     core.debug(`API response status: ${validateResponse.status}`);
   } catch (error) {
@@ -25832,15 +25867,27 @@ async function validateFile(filePath, options) {
 async function executeFile(filePath, options) {
   const { apiKey, baseUrl, environment, pollingTimeoutSeconds, changesetVariables } = options;
   const content = fs.readFileSync(filePath, 'utf8');
-  const executeUrl = buildUrl(baseUrl, '/api/v1/change-set/change-set/execute_yaml/', environment);
+  const format = getFileFormat(filePath);
+  const endpoint = format === 'json'
+    ? '/api/v1/change-set/change-set/execute_json/'
+    : '/api/v1/change-set/change-set/execute_yaml/';
+  const executeUrl = buildUrl(baseUrl, endpoint, environment);
 
-  core.debug(`Execute URL: ${executeUrl}`);
+  core.debug(`Execute URL: ${executeUrl} (format: ${format})`);
 
-  // Prepare request payload with changeset and variables
-  const requestPayload = {
-    changeset: content,
-    ...(changesetVariables && { variables: changesetVariables })
-  };
+  // Build request body and content type based on file format
+  let body, contentType;
+  if (format === 'json') {
+    contentType = 'application/json';
+    const requestPayload = {
+      changeset: content,
+      ...(changesetVariables && { variables: changesetVariables })
+    };
+    body = JSON.stringify(requestPayload);
+  } else {
+    contentType = 'text/yaml';
+    body = buildYamlPayload(content, changesetVariables);
+  }
 
   core.debug(`Sending API request to: ${executeUrl}`);
   let executeResponse;
@@ -25849,9 +25896,9 @@ async function executeFile(filePath, options) {
       method: 'POST',
       headers: {
         'Authorization': `Api-Key ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': contentType
       },
-      body: JSON.stringify(requestPayload)
+      body
     });
     core.debug(`API response status: ${executeResponse.status}`);
   } catch (error) {
@@ -26150,7 +26197,7 @@ async function run() {
   }
 }
 
-module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus };
+module.exports = { run, pollTask, buildUrl, isGlobPattern, resolveFiles, worstStatus, getFileFormat, buildYamlPayload };
 
 /* istanbul ignore next */
 if (require.main === require.cache[eval('__filename')]) {
